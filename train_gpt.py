@@ -119,7 +119,37 @@ class GPT(nn.Module):
         )) # create a dictionary to hold the transformer blocks
 
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False) # linear layer to project output to vocab size
-        
+    
+
+    def forward(self, idx):
+
+        # idx is of shape (B, T)
+        B, T = idx.size() # get batch size and sequence length
+        assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}" # check if sequence length is less than or equal to block size
+
+        # forward the token and position embeddings
+        # creates a tensor representing positions of each token in the sequence
+        # with values ranging from 0 to T-1
+        # ensures that the tensor is on the same device as idx
+        # pos - resulting tensor which contains positional indices for each token in the sequence
+        pos = torch.arange(0, T, dtype = torch.long, device = idx.device) # create a tensor of shape (T) with values from 0 to T-1
+
+        pos_emb = self.transformer.wpe(pos) # get the positional embeddings for the positions of shape (T, n_embd)
+        tok_emb = self.transformer.wte(idx) # get the token embeddings for the input tokens of shape (B, T, n_embd)
+
+        x = tok_emb + pos_emb # add the token and positional embeddings together
+
+        # forward the transformer blocks
+
+        for block in self.transformer.h: # iterate over the transformer blocks
+            x = block(x)
+
+        # forward the final layer normalization and classfier
+        x = self.transformer.ln_f(x)
+        logits = self.lm_head(x) # (B, T, vocab_size)
+
+        return logits # return the logits of the model
+
     @classmethod
 
     def from_pretrained(cls, model_type):
