@@ -256,8 +256,8 @@ x = tokens.to(device)
 
 # generate! right now x is (B, T) where B = 5, T = 8
  # set the seed to 42
- torch.manual_seed(42)
- torch.cuda.manual_seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
 
 while x.size(1) < max_length: # while the sequence length is less than the maximum length
     # forward the model to get logits
