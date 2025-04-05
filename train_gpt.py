@@ -121,7 +121,7 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False) # linear layer to project output to vocab size
     
 
-    def forward(self, idx):
+    def forward(self, idx, targets=None):
 
         # idx is of shape (B, T)
         B, T = idx.size() # get batch size and sequence length
@@ -148,7 +148,13 @@ class GPT(nn.Module):
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x) # (B, T, vocab_size)
 
-        return logits # return the logits of the model
+        loss = None
+        if targets is not None: # targets shape is (B, T)
+        # logits.view(-1, logits.size(-1)) - reshape logits to (B*T, vocab_size)
+        # targets.view(-1) - reshape targets to (B*T)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1)) # calculate the loss using cross entropy
+
+        return logits, loss # return the logits and loss
 
     @classmethod
 
@@ -241,8 +247,8 @@ model = GPT(GPTConfig()) # create a model object with the config object
 
 model.to(device) # move the model to GPU
 
-logits = model(x) # forward the model (B, T) -> (B, T, vocab_size)
-print(logits.size()) # print the size of the logits
+logits, loss = model(x) # forward the model (B, T) -> (B, T, vocab_size)
+print(loss)
 import sys; sys.exit(0) # exit the program
 
 model.eval()
