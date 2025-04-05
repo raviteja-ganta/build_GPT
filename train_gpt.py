@@ -119,3 +119,67 @@ class GPT(nn.Module):
         )) # create a dictionary to hold the transformer blocks
 
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False) # linear layer to project output to vocab size
+        
+    @classmethod
+
+    def from_pretrained(cls, model_type):
+        # Loads pretrained GPT-2 model weights from huggingface to load in to our model
+
+        assert model_type in {"gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl"}
+
+        from transformers import GPT2LMHeadModel
+
+        print("Loading pretrained model from huggingface : %s" % model_type)
+
+        config_args = {
+            "gpt2": dict(n_layer=12, n_embd=768, n_head=12), # 124 M params
+            "gpt2-medium": dict(n_layer=24, n_embd=1024, n_head=16), # 350 M params
+            "gpt2-large": dict(n_layer=36, n_embd=1280, n_head=20), # 774 M params
+            "gpt2-xl": dict(n_layer=48, n_embd=1600, n_head=25) # 1558 M params
+        }[model_type]
+
+        config_args['vocab_size'] = 50257 # always 50257 for GPT model checkpoints
+        config_args['block_size'] = 1024
+
+        # create a from scratch initialzed minGPT model
+        config = GPTConfig(**config_args) # create a config object with the above args
+
+        model = GPT(config) # create a model object with the config object
+
+        sd = model.state_dict() # get the state dict of the model
+        sd_keys = sd.keys() # get the keys of the state dict
+
+        sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard the mask/buffer, not a param
+
+        # init a huggingface model
+        model_hf = GPT2LMHeadModel.from_pretrained(model_type) # load the huggingface model
+        sd_hf = model_hf.state_dict()
+
+        # copy the weights from the huggingface model to our model
+        sd_keys_hf = sd_hf.keys() # get the keys of the huggingface model
+
+        sd_keys_hf = [k for k in sd_keys_hf if not k.endswith('.attn.masked_bias')]  # ignore these, just a buffer
+        sd_keys_hf = [k for k in sd_keys_hf if not k.endswith('.attn.bias')]  # ignore these, just a buffer
+
+        transposed = ['attn.c_attn.weight', 'attn.c_proj.weight', 'mlp.c_fc.weight', 'mlp.c_proj.weight'] # list of keys to transpose
+
+        # basically the openai checkpoints use a "Conv1D" module, but we only want to use a vanilla Linear
+         # this means that we have to transpose these weights when we import them
+         assert len(sd_keys_hf) == len(sd_keys), f"mismatched keys: {len(sd_keys_hf)} != {len(sd_keys)}"
+         for k in sd_keys_hf:
+             if any(k.endswith(w) for w in transposed):
+                 # special treatment for the Conv1D weights we need to transpose
+                 assert sd_hf[k].shape[::-1] == sd[k].shape
+                 with torch.no_grad():
+                     sd[k].copy_(sd_hf[k].t())
+             else:
+                 # vanilla copy over the other parameters
+                 assert sd_hf[k].shape == sd[k].shape
+                 with torch.no_grad():
+                     sd[k].copy_(sd_hf[k])
+ 
+         return model
+
+model = GPT.from_pretrained("gpt2") # load the model
+print('model loaded successfully')
+
