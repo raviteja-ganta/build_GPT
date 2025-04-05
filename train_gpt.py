@@ -210,15 +210,23 @@ class GPT(nn.Module):
  
         return model
 
+# attempt to autodetect the device
+device = 'cpu'
+if torch.cuda.is_available():
+    device = 'cuda'
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device = 'mps'
+
+print(f"Using device: {device}")
+
 
 num_return_sequences = 5 # number of sequences to return
 max_length = 50 # maximum length of the generated sequence
 
-model = GPT.from_pretrained("gpt2") # load the model
-print('model loaded successfully')
+model = GPT(GPTConfig()) # create a model object with the config object
 
 model.eval() # set the model to evaluation mode
-model.to('cuda') # move the model to GPU
+model.to(device) # move the model to GPU
 
 # prefix tokens
 
@@ -227,7 +235,7 @@ enc = tiktoken.get_encoding("gpt2") # get the encoding for gpt2
 token = enc.encode("Hello, I'm a language model,") # encode the input text
 tokens = torch.tensor(token, dtype=torch.long) # (8,)
 tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # (5, 8) # repeat the tokens for the number of return sequences
-x = tokens.to('cuda') # move the tokens to GPU
+x = tokens.to(device) # move the tokens to GPU
 
 # generate! right now x is (B, T) = (5, 8)
 # set the seed to 42
