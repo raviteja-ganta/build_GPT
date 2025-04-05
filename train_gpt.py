@@ -247,7 +247,8 @@ model = GPT(GPTConfig()) # create a model object with the config object
 
 model.to(device) # move the model to GPU
 
-logits, loss = model(x) # forward the model (B, T) -> (B, T, vocab_size)
+logits, loss = model(x,y) # forward the model (B, T) -> (B, T, vocab_size)
+print(logits.shape) # (B, T, vocab_size)
 print(loss)
 import sys; sys.exit(0) # exit the program
 
