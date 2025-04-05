@@ -219,28 +219,45 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
 
 print(f"Using device: {device}")
 
+device = 'cpu'
 
-num_return_sequences = 5 # number of sequences to return
-max_length = 50 # maximum length of the generated sequence
+# get a batch
+import tiktoken
+enc = tiktoken.get_encoding("gpt2") # get the encoding for gpt2
+
+with open('input.txt', 'r') as f:
+    text = f.read() # read the input text file
+text = text[:1000] # take the first 1000 characters of the text
+# prefix tokens
+
+tokens = enc.encode(text) # encode the input text
+B = 4
+T = 32
+buf = torch.tensor(tokens[:B*T+1]) # take the first B*T+1 tokens
+x = buf[:-1].view(B, T) # (B, T) # create a tensor of shape (B, T) with the tokens
+y = buf[1:].view(B, T) # (B, T) # create a tensor of shape (B, T) with the tokens shifted by 1
 
 model = GPT(GPTConfig()) # create a model object with the config object
 
-model.eval() # set the model to evaluation mode
 model.to(device) # move the model to GPU
 
-# prefix tokens
+logits = model(x) # forward the model (B, T) -> (B, T, vocab_size)
+print(logits.size()) # print the size of the logits
+import sys; sys.exit(0) # exit the program
 
-import tiktoken
-enc = tiktoken.get_encoding("gpt2") # get the encoding for gpt2
-token = enc.encode("Hello, I'm a language model,") # encode the input text
-tokens = torch.tensor(token, dtype=torch.long) # (8,)
-tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # (5, 8) # repeat the tokens for the number of return sequences
-x = tokens.to(device) # move the tokens to GPU
+model.eval()
+num_return_sequences = 5    
+max_length = 30
 
-# generate! right now x is (B, T) = (5, 8)
-# set the seed to 42
-torch.manual_seed(42) # set the seed for reproducibility
-torch.cuda.manual_seed(42) # set the seed for GPU
+tokens = enc.encode("Hello, I'm a language model,")
+tokens = torch.tensor(tokens, dtype=torch.long) # (8,)
+tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # (5, 8)
+x = tokens.to(device)
+
+# generate! right now x is (B, T) where B = 5, T = 8
+ # set the seed to 42
+ torch.manual_seed(42)
+ torch.cuda.manual_seed(42)
 
 while x.size(1) < max_length: # while the sequence length is less than the maximum length
     # forward the model to get logits
