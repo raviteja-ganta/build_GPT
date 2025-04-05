@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclasses
+from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -195,21 +195,81 @@ class GPT(nn.Module):
 
         # basically the openai checkpoints use a "Conv1D" module, but we only want to use a vanilla Linear
          # this means that we have to transpose these weights when we import them
-         assert len(sd_keys_hf) == len(sd_keys), f"mismatched keys: {len(sd_keys_hf)} != {len(sd_keys)}"
-         for k in sd_keys_hf:
-             if any(k.endswith(w) for w in transposed):
-                 # special treatment for the Conv1D weights we need to transpose
-                 assert sd_hf[k].shape[::-1] == sd[k].shape
-                 with torch.no_grad():
-                     sd[k].copy_(sd_hf[k].t())
-             else:
-                 # vanilla copy over the other parameters
-                 assert sd_hf[k].shape == sd[k].shape
-                 with torch.no_grad():
-                     sd[k].copy_(sd_hf[k])
+        assert len(sd_keys_hf) == len(sd_keys), f"mismatched keys: {len(sd_keys_hf)} != {len(sd_keys)}"
+        for k in sd_keys_hf:
+            if any(k.endswith(w) for w in transposed):
+                # special treatment for the Conv1D weights we need to transpose
+                assert sd_hf[k].shape[::-1] == sd[k].shape
+                with torch.no_grad():
+                    sd[k].copy_(sd_hf[k].t())
+            else:
+                # vanilla copy over the other parameters
+                assert sd_hf[k].shape == sd[k].shape
+                with torch.no_grad():
+                    sd[k].copy_(sd_hf[k])
  
-         return model
+        return model
+
+
+num_return_sequences = 5 # number of sequences to return
+max_length = 50 # maximum length of the generated sequence
 
 model = GPT.from_pretrained("gpt2") # load the model
 print('model loaded successfully')
+
+model.eval() # set the model to evaluation mode
+model.to('cuda') # move the model to GPU
+
+# prefix tokens
+
+import tiktoken
+enc = tiktoken.get_encoding("gpt2") # get the encoding for gpt2
+token = enc.encode("Hello, I'm a language model,") # encode the input text
+tokens = torch.tensor(token, dtype=torch.long) # (8,)
+tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # (5, 8) # repeat the tokens for the number of return sequences
+x = tokens.to('cuda') # move the tokens to GPU
+
+# generate! right now x is (B, T) = (5, 8)
+# set the seed to 42
+torch.manual_seed(42) # set the seed for reproducibility
+torch.cuda.manual_seed(42) # set the seed for GPU
+
+while x.size(1) < max_length: # while the sequence length is less than the maximum length
+    # forward the model to get logits
+    with torch.no_grad(): # no need to calculate gradients
+        logits = model(x) # forward the model (B, T) -> (B, T, vocab_size)
+
+        # take the logits at last position/token
+        logits = logits[:, -1, :] # (B, vocab_size)
+
+        # get the probabilities dim = -1 indicates the last dimension
+        probs = F.softmax(logits, dim=-1)
+
+        # sample from the distribution
+        # top_k sampling. do top-k sampling of 50
+        # top_k probs here comes (5, 50), top_k indices (5, 50)
+        topk_probs, topk_indices = torch.topk(probs, 50, dim=-1) # (B, 50)
+
+        # sample from the top-k distribution
+        ix = torch.multinomial(topk_probs, num_samples=1) # (B, 1)
+
+        # gather the corresponding indices
+        xcol = torch.gather(topk_indices, dim=-1, index=ix) # (B, 1)
+
+        # append to the sequence
+        x = torch.cat((x, xcol), dim=1)
+
+# print the generated sequences
+for i in range(num_return_sequences):
+    tokens = x[i, : max_length].tolist() # get the tokens for the i-th sequence
+    decoded = enc.decode(tokens) # decode the tokens to text
+    print('>', decoded)
+
+
+
+
+
+
+
+  
 
