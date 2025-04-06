@@ -18,6 +18,7 @@ class CausalSelfAttention(nn.Module):
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd) # linear layer to project input to key, query, value
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd) # linear layer to project output to n_embd
+        self.c_proj.NANOGPT_SCALE_INIT = 1
 
         # regularization
         self.n_head = config.n_head # number of heads
@@ -71,6 +72,7 @@ class MLP(nn.Module):
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd) # linear layer to project input to 4 * n_embd
         self.gelu = nn.GELU(approximate = 'tanh') # activation function
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd)
+        self.c_proj.NANOGPT_SCALE_INIT = 1
 
     def forward(self, x):
         x = self.c_fc(x)
@@ -123,6 +125,20 @@ class GPT(nn.Module):
         # weight sharing scheme
         self.transformer.wte.weight = self.lm_head.weight # share the weights of the word embedding layer and the output layer
 
+        # init params
+        self.apply(self._init_weights) # initialize the weights of the model
+    
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            std = 0.02
+            if hasattr(module, 'NANOGPT_SCALE_INIT'):
+                std *= (2 * self.config.n_layer) ** -0.5
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std) # initialize the weights of the linear layer with normal distribution
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            # initialize the weights of the embedding layer with normal distribution
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
 
@@ -262,6 +278,11 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
 
 print(f"Using device: {device}")
 
+torch.manual_seed(1337)
+if torch.cuda.is_available():
+    # set the seed for all GPUs
+    torch.cuda.manual_seed(1337)
+    
 train_loader = DataLoaderLite(B=4, T=32) # create a data loader with batch size 4 and sequence length 128
 
 model = GPT(GPTConfig()) # create a model object with the config object
@@ -291,10 +312,6 @@ tokens = torch.tensor(tokens, dtype=torch.long) # (8,)
 tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # (5, 8)
 x = tokens.to(device)
 
-# generate! right now x is (B, T) where B = 5, T = 8
- # set the seed to 42
-torch.manual_seed(42)
-torch.cuda.manual_seed(42)
 
 while x.size(1) < max_length: # while the sequence length is less than the maximum length
     # forward the model to get logits
