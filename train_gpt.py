@@ -225,8 +225,6 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
 
 print(f"Using device: {device}")
 
-device = 'cpu'
-
 # get a batch
 import tiktoken
 enc = tiktoken.get_encoding("gpt2") # get the encoding for gpt2
@@ -240,6 +238,7 @@ tokens = enc.encode(text) # encode the input text
 B = 4
 T = 32
 buf = torch.tensor(tokens[:B*T+1]) # take the first B*T+1 tokens
+buf = buf.to(device) # move the tensor to GPU
 x = buf[:-1].view(B, T) # (B, T) # create a tensor of shape (B, T) with the tokens
 y = buf[1:].view(B, T) # (B, T) # create a tensor of shape (B, T) with the tokens shifted by 1
 
@@ -247,9 +246,17 @@ model = GPT(GPTConfig()) # create a model object with the config object
 
 model.to(device) # move the model to GPU
 
-logits, loss = model(x,y) # forward the model (B, T) -> (B, T, vocab_size)
-print(logits.shape) # (B, T, vocab_size)
-print(loss)
+# optimize the model
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4) # create an optimizer for the model parameters
+for i in range(50):
+    # we can think this as using same batch of data for 50 steps
+    # this is not how we train models in practice, but for the sake of simplicity
+    optimizer.zero_grad() # zero the gradients
+    logits, loss = model(x, y) # forward the model
+    loss.backward() # backward pass
+    optimizer.step() # update the weights
+    print(f"step {i}: loss {loss.item()}") # print the loss
+
 import sys; sys.exit(0) # exit the program
 
 model.eval()
