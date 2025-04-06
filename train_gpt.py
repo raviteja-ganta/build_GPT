@@ -300,7 +300,8 @@ for i in range(50):
     x, y = train_loader.next_batch() # get the next batch of data
     x, y = x.to(device), y.to(device) # move the data to GPU
     optimizer.zero_grad() # zero the gradients
-    logits, loss = model(x, y) # forward the model
+    with torch.autocast(device_type=device, dtype=torch.float16):
+        logits, loss = model(x, y) # forward the model
     loss.backward() # backward pass
     optimizer.step() # update the weights
     t1 = time.time() # get the current time
