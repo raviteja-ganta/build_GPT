@@ -285,6 +285,7 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
 train_loader = DataLoaderLite(B=16, T=1024) # create a data loader with batch size 4 and sequence length 128
+# below line speeds up training as we are using tensor float32
 torch.set_float32_matmul_precision('high') # The argument 'high' indicates that you want to use a high precision level for matrix multiplication operations.
 # Higher precision levels generally result in more accurate results but may be slower compared to lower precision levels.
 model = GPT(GPTConfig()) # create a model object with the config object
