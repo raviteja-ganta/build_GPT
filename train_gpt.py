@@ -119,7 +119,10 @@ class GPT(nn.Module):
         )) # create a dictionary to hold the transformer blocks
 
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False) # linear layer to project output to vocab size
-    
+
+        # weight sharing scheme
+        self.transformer.wte.weight = self.lm_head.weight # share the weights of the word embedding layer and the output layer
+
 
     def forward(self, idx, targets=None):
 
