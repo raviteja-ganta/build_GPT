@@ -98,7 +98,7 @@ class Block(nn.Module):
 # decorator to automatically generate special methods like __init__() and __repr__()
 @dataclass
 class GPTConfig:
-    block_size: int = 128 # size of the context window/max sequence length
+    block_size: int = 1024 # size of the context window/max sequence length
     vocab_size: int = 50257 # size of the vocabulary/ number of tokens  50,000 BPE merges + 256 bytes tokens + 1 <|endoftext|> token
     n_layer: int = 12 # number of transformer blocks
     n_head: int = 12 # number of attention heads
@@ -270,6 +270,7 @@ class DataLoaderLite:
         return x, y
 
 # attempt to autodetect the device
+import time
 device = 'cpu'
 if torch.cuda.is_available():
     device = 'cuda'
@@ -282,9 +283,10 @@ torch.manual_seed(1337)
 if torch.cuda.is_available():
     # set the seed for all GPUs
     torch.cuda.manual_seed(1337)
-    
-train_loader = DataLoaderLite(B=4, T=32) # create a data loader with batch size 4 and sequence length 128
 
+train_loader = DataLoaderLite(B=16, T=1024) # create a data loader with batch size 4 and sequence length 128
+torch.set_float32_matmul_precision('high') # The argument 'high' indicates that you want to use a high precision level for matrix multiplication operations.
+# Higher precision levels generally result in more accurate results but may be slower compared to lower precision levels.
 model = GPT(GPTConfig()) # create a model object with the config object
 
 model.to(device) # move the model to GPU
@@ -292,6 +294,7 @@ model.to(device) # move the model to GPU
 # optimize the model
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4) # create an optimizer for the model parameters
 for i in range(50):
+    t0 = time.time() # get the current time
     # basically we are getting 50 batches of data
     x, y = train_loader.next_batch() # get the next batch of data
     x, y = x.to(device), y.to(device) # move the data to GPU
@@ -299,7 +302,10 @@ for i in range(50):
     logits, loss = model(x, y) # forward the model
     loss.backward() # backward pass
     optimizer.step() # update the weights
-    print(f"step {i}: loss {loss.item()}") # print the loss
+    t1 = time.time() # get the current time
+    dt = (t1 - t0) * 1000 # calculate the time taken for the forward pass
+    tokens_per_sec = (train_loader.B * train_loader.T)/(t1 - t0) # calculate the tokens per second
+    print(f"step {i}, loss: {loss.item()}, dt: {dt:.2f}ms, tok/sec: {tokens_per_sec:.2f}")
 
 import sys; sys.exit(0) # exit the program
 
