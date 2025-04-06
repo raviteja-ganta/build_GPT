@@ -216,6 +216,40 @@ class GPT(nn.Module):
  
         return model
 
+import tiktoken
+
+class DataLoaderLite:
+    def __init__(self, B, T):
+        self.B = B
+        self.T = T
+
+        # at init load tokens from disk and store them in memory
+        with open('input.txt', 'r') as f:
+            text = f.read()
+        
+        enc = tiktoken.get_encoding("gpt2") # get the encoding for gpt2
+        tokens = enc.encode(text)
+        self.tokens = torch.tensor(tokens) # convert to tensor
+        print(f"loaded {len(self.tokens)} tokens")
+        print(f"1 epoch = {len(self.tokens) // (B * T)} batches")
+
+        # state
+        self.current_position = 0
+
+    def next_batch(self):
+        # get the next batch of data
+        B, T = self.B, self.T
+        buf = self.tokens[self.current_position:self.current_position + B * T + 1] # get the next B * T + 1 tokens. get the next batch of data
+        x = (buf[:-1].view(B, T)) # (B, T) # create a tensor of shape (B, T) with the tokens
+        y = (buf[1:].view(B, T)) # (B, T) # create a tensor of shape (B, T) with the tokens shifted by 1
+        # advance the positon of the tensor
+        self.current_position += B * T
+
+        # if loading the next batch would be out of bounds, reset
+        if self.current_position + B * T >= len(self.tokens):
+            self.current_position = 0
+        return x, y
+
 # attempt to autodetect the device
 device = 'cpu'
 if torch.cuda.is_available():
@@ -225,22 +259,7 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
 
 print(f"Using device: {device}")
 
-# get a batch
-import tiktoken
-enc = tiktoken.get_encoding("gpt2") # get the encoding for gpt2
-
-with open('input.txt', 'r') as f:
-    text = f.read() # read the input text file
-text = text[:1000] # take the first 1000 characters of the text
-# prefix tokens
-
-tokens = enc.encode(text) # encode the input text
-B = 4
-T = 32
-buf = torch.tensor(tokens[:B*T+1]) # take the first B*T+1 tokens
-buf = buf.to(device) # move the tensor to GPU
-x = buf[:-1].view(B, T) # (B, T) # create a tensor of shape (B, T) with the tokens
-y = buf[1:].view(B, T) # (B, T) # create a tensor of shape (B, T) with the tokens shifted by 1
+train_loader = DataLoaderLite(B=4, T=32) # create a data loader with batch size 4 and sequence length 128
 
 model = GPT(GPTConfig()) # create a model object with the config object
 
@@ -249,8 +268,9 @@ model.to(device) # move the model to GPU
 # optimize the model
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4) # create an optimizer for the model parameters
 for i in range(50):
-    # we can think this as using same batch of data for 50 steps
-    # this is not how we train models in practice, but for the sake of simplicity
+    # basically we are getting 50 batches of data
+    x, y = train_loader.next_batch() # get the next batch of data
+    x, y = x.to(device), y.to(device) # move the data to GPU
     optimizer.zero_grad() # zero the gradients
     logits, loss = model(x, y) # forward the model
     loss.backward() # backward pass
