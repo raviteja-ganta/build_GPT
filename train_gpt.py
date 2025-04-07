@@ -280,7 +280,7 @@ model.to(device) # move the model to GPU
 model = torch.compile(model) # compile the model for faster training
 
 # optimize the model
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4) # create an optimizer for the model parameters
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas = (0.9, 0.95), eps = 1e-8) # create an optimizer for the model parameters
 for i in range(50):
     t0 = time.time() # get the current time
     # basically we are getting 50 batches of data
@@ -290,11 +290,17 @@ for i in range(50):
     with torch.autocast(device_type=device, dtype=torch.float16):
         logits, loss = model(x, y) # forward the model
     loss.backward() # backward pass
+    # clip the gradients to prevent exploding gradients
+    # The function torch.nn.utils.clip_grad_norm_ iterates over the model parameters, computes the norm of the gradients, 
+    # and clips the gradients if their norm exceeds the specified threshold (in this case, 1.0).
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # clip the gradients
     optimizer.step() # update the weights
     t1 = time.time() # get the current time
-    dt = (t1 - t0) * 1000 # calculate the time taken for the forward pass
-    tokens_per_sec = (train_loader.B * train_loader.T)/(t1 - t0) # calculate the tokens per second
-    print(f"step {i}, loss: {loss.item()}, dt: {dt:.2f}ms, tok/sec: {tokens_per_sec:.2f}")
+
+    dt = (t1 - t0) # calculate the time taken for the forward pass
+    tokens_processed = train_loader.B * train_loader.T # calculate the number of tokens processed
+    tokens_per_sec = (train_loader.B * train_loader.T)/dt # calculate the tokens per second
+    print(f"step {i:4d} | loss: {loss.item():.6f} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
 
 import sys; sys.exit(0) # exit the program
 
