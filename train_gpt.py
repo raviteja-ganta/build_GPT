@@ -40,22 +40,9 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C//self.n_head).transpose(1,2)
         v = v.view(B, T, self.n_head, C//self.n_head).transpose(1,2)
 
-        # apply attention on all the projected vectors in batch
-        # attention (materializes the large (T,T) matrix for all queries and keys)
-
-        # k.transpose(-2, -1) - transpose the last two dimensions of k(swaps the last two dimensions of k)
-        # k.size(-1) - get the size of the last dimension of k which is hs
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1))) # (B, nh, T, hs) @ (B, nh, hs, T) = (B, nh, T, T) # scaled dot product attention
-
-        # below is the masking step which makes sure that the attention is only on the left side of the current token
-        # this is done by setting the upper triangular part of the attention matrix to -inf
-        att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float("-inf"))
-
-        # applies softmax function along the last dimension of att. This converts the attention scores to probabilities
-        # that sum to 1 across each row
-        att = F.softmax(att, dim = -1) # apply softmax to the attention matrix
-
-        y = att @ v # (B, nh, T, T) @ (B, nh, T, hs) = (B, nh, T, hs) # apply attention to values
+        y = F.scaled_dot_product_attention(q, k, v, is_causal = True) # flash attention
+        # (B, nh, T, hs) # scaled dot product attention
+        # (B, nh, T, T) @ (B, nh, T, hs) = (B, nh, T, hs) # apply attention to values
 
         y = y.transpose(1,2).contiguous().view(B, T, C) # (B, T, nh, hs) -> (B, T, n_embd) # concatenate heads and put back into the original shape
 
