@@ -278,7 +278,6 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     device = 'mps'
 
 print(f"Using device: {device}")
-
 torch.manual_seed(1337)
 if torch.cuda.is_available():
     # set the seed for all GPUs
@@ -291,6 +290,7 @@ torch.set_float32_matmul_precision('high') # The argument 'high' indicates that 
 model = GPT(GPTConfig()) # create a model object with the config object
 
 model.to(device) # move the model to GPU
+model = torch.compile(model) # compile the model for faster training
 
 # optimize the model
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4) # create an optimizer for the model parameters
@@ -351,6 +351,8 @@ for i in range(num_return_sequences):
     tokens = x[i, : max_length].tolist() # get the tokens for the i-th sequence
     decoded = enc.decode(tokens) # decode the tokens to text
     print('>', decoded)
+
+
 
 
 
