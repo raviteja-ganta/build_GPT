@@ -309,6 +309,27 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
 train_loader = DataLoaderLite(B=16, T=1024) # create a data loader with batch size 4 and sequence length 128
+
+total_batch_size = 524288 # this is batchsize used in the paper which is actual number of tokens
+# so 524288/1024 = 512 is the number of batches
+# we cannot use this big batch size if we are using a single GPU
+# so we can use gradient accumulation to simulate a larger batch size
+# gradient accumulation is a technique used in deep learning to update the model weights after accumulating gradients over multiple mini-batches
+# instead of updating the weights after each mini-batch, we accumulate the gradients over multiple mini-batches and then update the weights
+# this allows us to use a larger effective batch size without increasing the memory requirements
+B = 16 # micro batch size
+T = 1024 # sequence length
+assert total_batch_size % (B * T) == 0, "total_batch_size must be divisible by B * T" # check if total batch size is divisible by B * T
+grad_accum_steps = total_batch_size // (B * T) # calculate the number of gradient accumulation steps
+# The gradient accumulation steps is the number of times we will accumulate gradients before updating the model parameters.
+# This is useful when we want to simulate a larger batch size than what can fit in memory.
+# For example, if we have a total batch size of 1024 and a micro batch size of 16, we will have 64 gradient accumulation steps.
+# This means that we will accumulate gradients for 64 batches before updating the model parameters.
+print(f"total desired batch size: {total_batch_size}")
+print(f"=>calculated gradient accumulation steps: {grad_accum_steps}")
+
+train_loader = DataLoaderLite(B=B, T=T) # create a data loader with batch size B and sequence length T
+
 # below line speeds up training as we are using tensor float32
 torch.set_float32_matmul_precision('high') # The argument 'high' indicates that you want to use a high precision level for matrix multiplication operations.
 # Higher precision levels generally result in more accurate results but may be slower compared to lower precision levels.
@@ -342,15 +363,31 @@ def get_lr(it):
 
 # optimize the model
 optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device=device) # configure the optimizer for the model parameters
+
 for step in range(max_steps):
     t0 = time.time() # get the current time
-    # basically we are getting 50 batches of data
-    x, y = train_loader.next_batch() # get the next batch of data
-    x, y = x.to(device), y.to(device) # move the data to GPU
     optimizer.zero_grad() # zero the gradients
-    with torch.autocast(device_type=device, dtype=torch.float16):
-        logits, loss = model(x, y) # forward the model
-    loss.backward() # backward pass
+
+    loss_accum = 0.0 # initialize the loss accumulator
+    for micro_step in range(grad_accum_steps): # iterate over the gradient accumulation steps
+        x, y = train_loader.next_batch() # get the next batch of data
+        x = x.to(device) # move the input to GPU
+        y = y.to(device) # move the target to GPU
+
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+            logits, loss = model(x, y) # forward the model and get the logits and loss
+
+        # The loss is divided by the number of gradient accumulation steps to ensure that the gradients are averaged over all steps.
+        # we have to scale the loss to account for gradient accumulation
+        # because gradients just add on each successive backward pass
+        # addition of gradients corresponds to a SUM in objective function
+        # instead of SUM we want MEAN. So we divide by the number of gradient accumulation steps
+        loss = loss / grad_accum_steps # scale the loss by the number of gradient accumulation steps
+        loss_accum += loss.detach() # accumulate the loss
+
+        # backward pass
+        loss.backward() # calculate the gradients
+
     # clip the gradients to prevent exploding gradients
     # The function torch.nn.utils.clip_grad_norm_ iterates over the model parameters, computes the norm of the gradients, 
     # and clips the gradients if their norm exceeds the specified threshold (in this case, 1.0).
@@ -365,9 +402,9 @@ for step in range(max_steps):
     t1 = time.time() # get the current time
 
     dt = (t1 - t0) # calculate the time taken for the forward pass
-    tokens_processed = train_loader.B * train_loader.T # calculate the number of tokens processed
-    tokens_per_sec = (train_loader.B * train_loader.T)/dt # calculate the tokens per second
-    print(f"step {step:4d} | loss: {loss.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
+    tokens_processed = train_loader.B * train_loader.T * grad_accum_steps # calculate the number of tokens processed
+    tokens_per_sec = (tokens_processed)/dt # calculate the tokens per second
+    print(f"step {step:4d} | loss: {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
 
 import sys; sys.exit(0) # exit the program
 
